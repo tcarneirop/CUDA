@@ -1,0 +1,17 @@
+COMPILANDO PARA DISPOSITIVO NVIDIA:
+
+1) nvcc -cuda teste.cu
+
+Este comando irá gerar um código C++ a partir do arquivo teste.cu, guardando-o no arquivo teste.cu.cpp. Após isso, faça:
+
+2) nvcc teste.cu.cpp -o teste.exe
+
+Executando:
+
+3) ./teste.exe
+
+
+DEVICE EMULATION:
+
+1) nvcc -deviceemu --compiler-bindir=/usr/bin/gcc-4.3 -arch sm_13 cuda_code.cu -o executavel.exe
+2) ./executavel.exe

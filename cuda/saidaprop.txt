@@ -1,0 +1,22 @@
+
+1 Device Found
+
+The Device ID is 0
+	Device Name : GeForce 9800 GT
+The Properties of the Device with ID 0 are:
+
+	Compute capability: 1.1
+	Compute mode: 0
+	Number of multiprocessors: 14
+	Device clock rate (Khz): 1620000
+	Device Memory Size (in Mbytes) : 536
+	Shared memory per block (in bytes): 16384
+	Number of registers per block: 8192
+
+
+	Number of threads per warp: 32
+	Number of threads per block: 512
+	Max dimensions of a block:
+		X:512, Y:512, Z:64
+	Max dimensions of a grid:
+		X:65535, Y:65535, Z:1
