@@ -1,0 +1,124 @@
+/*
+ * Main.java
+ *
+ *  Created on: 26/01/2011
+ *      Author: einstein
+ */
+ import java.util.Scanner;
+
+public class EnumerationDFS{
+
+int MAX = 512;
+int INFINITO = 999999;
+int ZERO = 0;
+
+int qtd = 0;
+
+int N;
+int upper_bound = INFINITO;
+
+
+int[] mat;
+
+ void read(){
+  Scanner entrada = new Scanner(System.in);
+	int i , j ;
+ 	N = entrada.nextInt();
+ 	mat = new int [N*N];
+ 	for( i = 0 ; i < (N*N) ; i++ ){
+	  mat[i]= entrada.nextInt();
+	}
+}
+
+int proximo (int x){
+  return x+1;
+}
+
+int anterior (int x){
+  return x-1;
+}
+
+int mat (int i, int j){
+  return mat[i*N+j];
+}
+
+// void print(int *v,int custo_ciclo, int custo) {
+//   int i;
+//   for (i = 0; i < N; i++){
+//     if(i<N-1)
+//     custo+=mat(v[i],v[i+1]);
+//   else
+//     custo+=mat(v[i],0);
+//     System.out.println(v[i]);
+//   }
+// 
+//   System.out.println("   custo: "+ custo);
+//   System.out.println("");
+// }
+boolean flag(int i){
+  if(i==0) return false;
+  return true;
+}
+
+int dfs_novo() {
+   register int[]  vFlag = new int [MAX];
+   register int[]  vertice = new int [MAX]; //representa o ciclo
+
+   register int custo = ZERO;
+   register int i, nivel = 1;  //---> nivel zero ja tem a raiz
+
+
+    /*Inicializacao*/
+    for (i = 0; i < N; ++i) { //
+      vFlag[i] = 0;
+      vertice[i] = -1;
+    }
+
+    /*
+        para dizer que 0-1 sao fixos
+    */
+    vertice[0] = 0; //raiz
+    vFlag[0] = 1;
+
+    while (nivel >= 1) { // modificar aqui se quiser comecar a busca de determinado nivel
+      if(vertice[nivel] !=-1 ) {
+	vFlag[vertice[nivel]] = 0; 
+	custo-= mat(vertice[anterior(nivel)],vertice[nivel]);
+      }
+
+      for(vertice[nivel]++;(vertice[nivel] < N) && flag(vFlag[vertice[nivel]]); vertice[nivel]++); //
+
+      if (vertice[nivel] < N) {
+	custo+= mat(vertice[anterior(nivel)],vertice[nivel]);
+
+      vFlag[vertice[nivel]] = 1;
+      nivel++;
+
+      if (nivel == N){ //se o vértice do nível for == N, entao formou o ciclo e vc soma peso + vertice anterior -> inicio
+	++qtd;
+	if(custo + mat(vertice[anterior(nivel)],0)<upper_bound)
+	  upper_bound=custo + mat(vertice[anterior(nivel)],0);
+	nivel--;
+      }else{ }
+      } else {
+	vertice[nivel] = -1;
+	nivel--;
+      }
+    }
+
+    return upper_bound;
+  }
+
+  public static void main(String args[]) {
+	//	dfs();
+	int i,j;
+	//float tempo_inicial, tempo_final;
+	EnumerationDFS e = new EnumerationDFS();
+	e.read();
+	//System.out.println("################################# TODAS SOL - SERIAL E N RECURSIVO");
+	System.out.println("Dimensao: "+e.N);
+	System.out.println("Otimo dfs2(): "+ e.dfs_novo());
+	//tempo_final = time(NULL);
+	System.out.println("QTD de solucoes encontradas: "+e.qtd);
+  }
+}

@@ -1,0 +1,335 @@
+/*
+ * main.c
+ * Fusion: Abstractions for Multicore/Manycore Heterogenous Parallel Programming Using GPUs
+    Anderson Boettge Pinheiro,
+    Francisco Heron de Carvalho Junior,
+    Neemias Gabriel Pena Batista Arruda,
+    Tiago Carneiro 
+ */
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <cuda.h>
+#include <omp.h>
+
+#define mat(i,j) mat_h[i*N+j]
+#define mat_h(i,j) mat_h[i*N+j]
+#define mat_d(i,j) mat_d[i*N_l+j]
+#define mat_block(i,j) mat_block[i*N_l+j]
+#define proximo(x) x+1
+#define anterior(x) x-1
+#define MAX 8192
+#define INFINITO 999999
+#define ZERO 0
+#define ONE 1
+
+#define _VAZIO_      -1
+#define _VISITADO_    1
+#define _NAO_VISITADO_ 0
+
+int qtd = 0;
+int custo = 0;
+int N;
+int melhor = INFINITO;
+int upper_bound;
+
+int mat_h[MAX];
+
+
+#define CUDA_CHECK_RETURN(value) {											\
+	cudaError_t _m_cudaStat = value;										\
+	if (_m_cudaStat != cudaSuccess) {										\
+		fprintf(stderr, "Error %s at line %d in file %s\n",					\
+				cudaGetErrorString(_m_cudaStat), __LINE__, __FILE__);		\
+		exit(1);															\
+	} }
+
+
+static void HandleError( cudaError_t err,
+		const char *file,
+		int line ) {
+	if (err != cudaSuccess) {
+		printf( "%s in %s at line %d\n", cudaGetErrorString( err ),
+				file, line );
+		exit( EXIT_FAILURE );
+	}
+}
+
+
+
+#define HANDLE_NULL( a ) {if (a == NULL) { \
+		printf( "Host memory failed in %s at line %d\n", \
+				__FILE__, __LINE__ ); \
+				exit( EXIT_FAILURE );}}
+
+void read() {
+	int i;
+	scanf("%d", &N);
+	for (i = 0; i < (N * N); i++) {
+		scanf("%d", &mat_h[i]);
+	}
+
+}
+
+unsigned long long int calculaNPrefixos(const int nivelPrefixo, const int nVertice) {
+	unsigned long long int x = nVertice - 1;
+	int i;
+	for (i = 1; i < nivelPrefixo-1; ++i) {
+		x *= nVertice - i-1;
+	}
+	return x;
+}
+
+void fillFixedPaths(short* preFixo, int nivelPrefixo) {
+	char flag[50];
+	int vertice[50]; 
+	int cont = 0;
+	int i, nivel; 
+
+
+	for (i = 0; i < N; ++i) {
+		flag[i] = 0;
+		vertice[i] = -1;
+	}
+
+	vertice[0] = 0; 
+	flag[0] = 1;
+	nivel = 1;
+	while (nivel >= 1){
+
+		if (vertice[nivel] != -1) {
+			flag[vertice[nivel]] = 0;
+		}
+
+		do {
+			vertice[nivel]++;
+		} while (vertice[nivel] < N && flag[vertice[nivel]]); 
+
+		if (vertice[nivel] < N) { 
+			flag[vertice[nivel]] = 1;
+			nivel++;
+			if (nivel == nivelPrefixo) {
+				for (i = 0; i < nivelPrefixo; ++i) {
+					preFixo[cont * nivelPrefixo + i] = vertice[i];
+				}
+				cont++;
+				nivel--;
+			}
+		} else {
+			vertice[nivel] = -1;
+			nivel--;
+		}
+	}
+}
+
+
+__global__ void dfs_cuda_UB_stream(int N,int stream_size, int *mat_d, 
+	short *preFixos_d, int nivelPrefixo, int upper_bound, int *sols_d,
+	int *melhorSol_d)
+	{
+
+	register int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	register int flag[16];
+	register int vertice[16]; 
+
+	register int N_l = N;
+
+	register int i, nivel;
+	register int custo;
+	register int qtd_solucoes_thread = 0;
+	register int UB_local = upper_bound;
+	register int nivelGlobal = nivelPrefixo;
+	int stream_size_l = stream_size;
+
+	if (idx < stream_size_l) {
+
+		for (i = 0; i < N_l; ++i) {
+			vertice[i] = _VAZIO_;
+			flag[i] = _NAO_VISITADO_;
+		}
+
+		vertice[0] = 0;
+		flag[0] = _VISITADO_;
+		custo= ZERO;
+
+		for (i = 1; i < nivelGlobal; ++i) {
+
+			vertice[i] = preFixos_d[idx * nivelGlobal + i];
+
+			flag[vertice[i]] = _VISITADO_;
+			custo += mat_d(vertice[i-1],vertice[i]);
+		}
+
+		nivel=nivelGlobal;
+
+		while (nivel >= nivelGlobal ) {
+			if (vertice[nivel] != _VAZIO_) {
+				flag[vertice[nivel]] = _NAO_VISITADO_;
+				custo -= mat_d(vertice[anterior(nivel)],vertice[nivel]);
+			}
+
+			do {
+				vertice[nivel]++;
+			} while (vertice[nivel] < N_l && flag[vertice[nivel]]); 
+			
+			if (vertice[nivel] < N_l) {
+				custo += mat_d(vertice[anterior(nivel)],vertice[nivel]);
+				flag[vertice[nivel]] = _VISITADO_;
+				nivel++;
+
+				if (nivel == N_l) {
+					++qtd_solucoes_thread;
+					if (custo + mat_d(vertice[anterior(nivel)],0) < UB_local) {
+						UB_local = custo + mat_d(vertice[anterior(nivel)],0);
+					}
+					nivel--;
+				}
+			}
+			else {
+				vertice[nivel] = _VAZIO_;
+				nivel--;
+			}
+		}
+		sols_d[idx] = qtd_solucoes_thread;
+		melhorSol_d[idx] = UB_local;
+	}
+}
+
+void checkCUDAError(const char *msg) {
+	cudaError_t err = cudaGetLastError();
+	if (cudaSuccess != err) {
+		fprintf(stderr, "Cuda error: %s: %s.\n", msg, cudaGetErrorString(err));
+		exit(EXIT_FAILURE);
+	}
+}
+
+
+int callCompleteEnumStreams(const int nivelPreFixos){
+
+	int *mat_d;
+	int otimo_global = INFINITO;
+	int *qtd_threads_streams;
+	int qtd_sols_global = 0;
+	int nPreFixos = calculaNPrefixos(nivelPreFixos,N);
+	int block_size =192; 
+
+	int *sols_h, *sols_d; 
+	int *melhorSol_h, *melhorSol_d; 
+	
+	short * path_h = (short*) malloc(sizeof(short) * nPreFixos * nivelPreFixos);
+	short * path_d;
+
+	/* Variaveis para os streams*/
+	const int chunk = 192*10;
+	const int numStreams = nPreFixos / chunk + (nPreFixos % chunk == 0 ? 0 : 1); 
+	const int num_blocks = chunk/block_size + (chunk % block_size == 0 ? 0 : 1);
+	int resto = 0;
+
+	resto = (nPreFixos % chunk);
+
+	qtd_threads_streams = (int*)malloc(sizeof(int)*numStreams);
+
+	/*
+	 * Setando qtd de threads do stream
+	 * */
+	if(numStreams>1){
+		for(int i = 0; i<numStreams-1 / block_size;++i){
+			qtd_threads_streams[i] = chunk;
+		}
+		if(resto>0){
+			qtd_threads_streams[numStreams-1] = resto;
+		}
+	}
+	else
+		qtd_threads_streams[0] = resto;
+
+	CUDA_CHECK_RETURN( cudaMalloc((void **) &path_d, 
+						nPreFixos*nivelPreFixos*sizeof(short)));
+	sols_h = (int*)malloc(sizeof(int)*nPreFixos);
+	melhorSol_h = (int*)malloc(sizeof(int)*nPreFixos); 
+
+	CUDA_CHECK_RETURN( cudaMalloc((void **) &mat_d, N * N * sizeof(int)));
+	
+	fillFixedPaths(path_h, nivelPreFixos); 
+
+	CUDA_CHECK_RETURN( cudaMemcpy(mat_d, mat_h, N * N * sizeof(int), 
+						cudaMemcpyHostToDevice));
+	for(int i = 0; i<nPreFixos; ++i)
+		melhorSol_h[i] = INFINITO;
+
+
+	CUDA_CHECK_RETURN( cudaMalloc((void **) &melhorSol_d, sizeof(int)*nPreFixos));
+	CUDA_CHECK_RETURN( cudaMalloc((void **) &sols_d, sizeof(int)*nPreFixos));
+
+	cudaStream_t vectorOfStreams[numStreams]; 
+	
+	for(int stream_id=0; stream_id<numStreams; stream_id++) 
+			cudaStreamCreate(&vectorOfStreams[stream_id]);
+
+	for(int stream_id=0; stream_id<numStreams; stream_id++) 
+		 cudaMemcpyAsync(&path_d[stream_id*chunk*nivelPreFixos],
+		 				&path_h[stream_id*chunk*nivelPreFixos],
+		 				qtd_threads_streams[stream_id]*sizeof(short)*nivelPreFixos,
+		 				cudaMemcpyHostToDevice,vectorOfStreams[stream_id]);
+
+	for(int stream_id=0; stream_id<numStreams; stream_id++){
+		cudaMemcpyAsync(&melhorSol_d[stream_id*chunk], &melhorSol_h[stream_id*chunk], 
+						qtd_threads_streams[stream_id]*sizeof(int),
+						cudaMemcpyHostToDevice, vectorOfStreams[stream_id]);
+
+	}
+	for(int stream_id=0; stream_id<numStreams; stream_id++){
+		cudaMemcpyAsync(&sols_d[stream_id*chunk], &sols_h[stream_id*chunk], 
+						qtd_threads_streams[stream_id]*sizeof(int),
+						cudaMemcpyHostToDevice,vectorOfStreams[stream_id]);
+	}
+	
+	for(int stream_id=0; stream_id<numStreams; stream_id++){
+		dfs_cuda_UB_stream<<<num_blocks,block_size,0,vectorOfStreams[stream_id]>>>
+						(N,qtd_threads_streams[stream_id],mat_d,
+						&path_d[stream_id*chunk*nivelPreFixos],	nivelPreFixos,999999,
+						&sols_d[stream_id*chunk],&melhorSol_d[stream_id*chunk]);
+	}
+	
+	for(int stream_id=0; stream_id<numStreams; stream_id++)
+		cudaMemcpyAsync(&sols_h[stream_id*chunk],&sols_d[stream_id*chunk],
+						qtd_threads_streams[stream_id]*sizeof(int),
+						cudaMemcpyDeviceToHost,vectorOfStreams[stream_id]);
+
+	for(int stream_id=0;stream_id<numStreams; stream_id++)
+		cudaMemcpyAsync(&melhorSol_h[stream_id*chunk],&melhorSol_d[stream_id*chunk],
+						qtd_threads_streams[stream_id]*sizeof(int),
+						cudaMemcpyDeviceToHost,vectorOfStreams[stream_id]);
+
+	cudaDeviceSynchronize();
+
+	for(int i = 0; i<nPreFixos; ++i){
+			qtd_sols_global+=sols_h[i];
+			if(melhorSol_h[i]<otimo_global)
+				otimo_global = melhorSol_h[i];
+	}
+
+	printf("\n\n\n\t niveis preenchidos: %d.\n",nivelPreFixos);
+
+	printf("\t Numero de streams: %d.\n",numStreams);
+	printf("\t Tamanho do stream: %d.\n",chunk);
+	printf("\nQuantidade de solucoes encontradas: %d.", qtd_sols_global);
+	printf("\n\tOtimo global: %d.\n\n", otimo_global);
+
+	CUDA_CHECK_RETURN( cudaFree(mat_d));
+	CUDA_CHECK_RETURN( cudaFree(sols_d));
+	CUDA_CHECK_RETURN( cudaFree(path_d));
+	CUDA_CHECK_RETURN( cudaFree(melhorSol_d));
+
+	return otimo_global;
+}
+
+int main() {
+
+	read();
+	int niveis = 5;
+	printf("\n\nEnumeracao com streams:\n\n");
+	callCompleteEnumStreams(niveis);
+
+	return 0;
+}

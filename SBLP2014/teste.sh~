@@ -1,0 +1,10 @@
+#!/bin/bash
+#rm -f saida*.txt
+
+for contador in {1..10}
+  do 
+(time (time ./CompleteEnumerationStream < 12.txt) 2>>sai12.txt)
+
+sleep 1;
+
+done

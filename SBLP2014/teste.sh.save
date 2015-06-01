@@ -1,0 +1,6 @@
+
+(time java CompEnumUnits_4threads < 15.txt) 2>> saida15.txt
+
+sleep 1;
+
+done
